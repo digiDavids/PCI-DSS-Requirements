@@ -1,0 +1,117 @@
+# Example IAM Roles and Groups
+
+## IAM Groups (for Users)
+
+
+| Group Name     | Purpose                                  | Common Permissions                                 |
+| ---------------- | ------------------------------------------ | ---------------------------------------------------- |
+| Developers     | App code deployments, debugging          | Read/write to dev/test S3, limited EC2, CloudWatch |
+| Ops Team       | Infrastructure management, scaling, logs | EC2, VPC, ELB, CloudWatch full access              |
+| Security Team  | Audit, incident response, IAM controls   | IAM read, CloudTrail, GuardDuty, Config read/write |
+| Data Engineers | Access to data pipelines, RDS, Redshift  | S3, Glue, Athena, RDS read/write                   |
+| Finance        | Billing dashboard and reports            | AWS Billing, Cost Explorer (read only)             |
+| QA/Testers     | Run test environments                    | Limited EC2/S3, permission to start test jobs      |
+
+---
+
+## IAM Roles (for AWS Services & Cross-Account Use)
+
+
+| Role Name                | Use Case                                                     | Trusted Entities                |
+| -------------------------- | -------------------------------------------------------------- | --------------------------------- |
+| EC2AppExecutionRole      | EC2 instance accessing S3, Secrets Manager, DynamoDB         | EC2 instances                   |
+| LambdaReadS3WriteKinesis | Lambda function that reads from S3, writes to Kinesis stream | Lambda                          |
+| CICDPipelineRole         | Used by CodePipeline/CodeBuild to deploy apps                | CodePipeline, CodeBuild         |
+| DataLakeQueryRole        | Athena/Glue to query and catalog data                        | Glue, Athena                    |
+| CrossAccountAuditRole    | Allows security account to read logs from other accounts     | Cross-account AWS account ID    |
+| AssumeRoleReadOnly       | Temporary read-only access for third parties                 | Federated user or ext principal |
+| IncidentResponseRole     | Elevated access during security incident (break-glass)       | Security team (MFA required)    |
+
+---
+
+## Compliance-Specific Roles
+
+
+| Role/Group              | Description                                               |
+| ------------------------- | ----------------------------------------------------------- |
+| PCIAppAccessRole        | Grants specific app access to encrypted cardholder data   |
+| SOXRestrictedAdminGroup | Only members authorized to perform SOX-scoped changes     |
+| AuditReadOnlyRole       | View-only access to logs, S3, and IAM for audit teams     |
+| TokenizationServiceRole | Allows apps to interact with tokenization/masking service |
+
+---
+
+## Security Best Practices Implemented
+
+- MFA enforced for console access and privileged IAM roles.
+- IAM Access Analyzer and SCPs used for organization-wide restrictions.
+- Attribute-based access control (ABAC) via resource tagging.
+- Role naming conventions: `Team-Environment-PermissionLevel` (e.g., `DevOps-Prod-Admin`).
+- Temporary access (STS AssumeRole) preferred over long-lived credentials.
+
+---
+
+## Terraform Sample: Create a Role and Group
+
+```hcl
+resource "aws_iam_group" "devs" {
+  name = "Developers"
+}
+
+resource "aws_iam_policy" "dev_policy" {
+  name        = "DeveloperAccessPolicy"
+  description = "Dev access to S3 and CloudWatch"
+  policy      = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "s3:*",
+          "cloudwatch:*"
+        ],
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_group_policy_attachment" "dev_attach" {
+  group      = aws_iam_group.devs.name
+  policy_arn = aws_iam_policy.dev_policy.arn
+}
+
+resource "aws_iam_role" "lambda_read_write" {
+  name = "LambdaReadS3WriteKinesis"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Principal = {
+          Service = "lambda.amazonaws.com"
+        },
+        Action = "sts:AssumeRole"
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "lambda_policy" {
+  name = "LambdaReadWritePolicy"
+  role = aws_iam_role.lambda_read_write.id
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Effect = "Allow",
+        Action = [
+          "s3:GetObject",
+          "kinesis:PutRecord"
+        ],
+        Resource = "*"
+      }
+    ]
+  })
+}
+```
